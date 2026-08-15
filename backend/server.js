@@ -270,4 +270,9 @@ if (fs.existsSync(frontendIndex)) {
 }
 
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, ()=>console.log(`Backend running at http://localhost:${PORT}`));
+
+if (process.env.VERCEL) {
+  export default app;
+} else {
+  app.listen(PORT, ()=>console.log(`Backend running at http://localhost:${PORT}`));
+}
