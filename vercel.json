@@ -1,27 +1,12 @@
 {
-  "services": {
-    "frontend": {
-      "root": "frontend",
-      "framework": "vite"
-    },
-    "backend": {
-      "root": "backend"
-    }
-  },
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": {
-        "type": "service",
-        "name": "backend"
-      }
+      "destination": "https://your-backend-domain.vercel.app/api/$1"
     },
     {
       "source": "/(.*)",
-      "destination": {
-        "type": "service",
-        "name": "frontend"
-      }
+      "destination": "/index.html"
     }
   ]
 }
