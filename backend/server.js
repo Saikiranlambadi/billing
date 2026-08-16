@@ -169,6 +169,39 @@ app.get("/api/health", (req, res) => {
   });
 });
 
+// API Info
+app.get("/api", (req, res) => {
+  res.json({
+    ok: true,
+    service: "Restaurant Billing API",
+    version: "2.0.0",
+    endpoints: {
+      categories: {
+        GET: "/api/categories - Get all categories",
+        POST: "/api/categories - Add category"
+      },
+      items: {
+        GET: "/api/items - Get all menu items",
+        POST: "/api/items - Add menu item"
+      },
+      bills: {
+        GET: "/api/bills - Get all bills",
+        POST: "/api/bills - Create new bill"
+      },
+      reports: {
+        GET: "/api/reports/daily - Get daily sales report"
+      },
+      settings: {
+        GET: "/api/settings - Get restaurant settings",
+        PUT: "/api/settings - Update settings"
+      },
+      admin: {
+        POST: "/api/clear-data - Clear all data (password protected)"
+      }
+    }
+  });
+});
+
 // Categories
 app.get("/api/categories", (req, res) => {
   res.json(db.prepare("SELECT * FROM categories ORDER BY id").all());
