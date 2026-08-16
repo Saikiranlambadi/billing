@@ -1,278 +1,439 @@
 import express from "express";
 import cors from "cors";
-import fs from "fs";
 import Database from "better-sqlite3";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
 const app = express();
-app.use(cors());
-app.use(express.json());
+const PORT = Number(process.env.PORT || 5000);
+const dbPath = process.env.DB_PATH || path.join(__dirname, "restaurant.db");
+const frontendOrigin = process.env.FRONTEND_ORIGIN || "*";
 
-const db = new Database(path.join(__dirname, "restaurant.db"));
+fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+
+app.use(cors({
+  origin: frontendOrigin === "*" ? true : frontendOrigin.split(",").map(v => v.trim()),
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
+}));
+app.use(express.json({ limit: "1mb" }));
+
+const db = new Database(dbPath);
 db.pragma("journal_mode = WAL");
+db.pragma("foreign_keys = ON");
+db.pragma("busy_timeout = 5000");
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS categories (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL UNIQUE
+  name TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-
 CREATE TABLE IF NOT EXISTS items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   category_id INTEGER,
-  price REAL NOT NULL DEFAULT 0,
-  available INTEGER NOT NULL DEFAULT 1,
+  price REAL NOT NULL DEFAULT 0 CHECK(price >= 0),
+  available INTEGER NOT NULL DEFAULT 1 CHECK(available IN (0,1)),
   image TEXT DEFAULT '',
-  FOREIGN KEY(category_id) REFERENCES categories(id)
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(category_id) REFERENCES categories(id) ON DELETE SET NULL
 );
-
 CREATE TABLE IF NOT EXISTS bills (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   bill_no TEXT NOT NULL UNIQUE,
-  total REAL NOT NULL,
+  total REAL NOT NULL CHECK(total >= 0),
   payment_method TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
-
 CREATE TABLE IF NOT EXISTS bill_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   bill_id INTEGER NOT NULL,
   item_id INTEGER,
   item_name TEXT NOT NULL,
-  quantity INTEGER NOT NULL,
-  price REAL NOT NULL,
-  amount REAL NOT NULL,
-  FOREIGN KEY(bill_id) REFERENCES bills(id)
+  quantity INTEGER NOT NULL CHECK(quantity > 0),
+  price REAL NOT NULL CHECK(price >= 0),
+  amount REAL NOT NULL CHECK(amount >= 0),
+  FOREIGN KEY(bill_id) REFERENCES bills(id) ON DELETE CASCADE
 );
-
 CREATE TABLE IF NOT EXISTS settings (
-  id INTEGER PRIMARY KEY CHECK(id=1),
+  id INTEGER PRIMARY KEY CHECK(id = 1),
   restaurant_name TEXT NOT NULL DEFAULT 'My Restaurant',
   address TEXT DEFAULT '',
   phone TEXT DEFAULT '',
   paper_size TEXT NOT NULL DEFAULT '80mm'
 );
+CREATE INDEX IF NOT EXISTS idx_bills_created_at ON bills(created_at);
+CREATE INDEX IF NOT EXISTS idx_bill_items_bill_id ON bill_items(bill_id);
+CREATE INDEX IF NOT EXISTS idx_items_category_id ON items(category_id);
 `);
 
-const itemColumns = db.prepare("PRAGMA table_info(items)").all();
-const hasImageColumn = itemColumns.some(column => column.name === "image");
-if (!hasImageColumn) {
-  db.exec("ALTER TABLE items ADD COLUMN image TEXT DEFAULT ''");
-}
-
-db.prepare("DELETE FROM bill_items").run();
-db.prepare("DELETE FROM bills").run();
-db.prepare("DELETE FROM items").run();
-db.prepare("DELETE FROM categories").run();
-
-const insertCategories = db.prepare("INSERT INTO categories(name) VALUES (?)");
-[
-  "Chicken Fry Mandi",
-  "Chicken Broasted Mandi",
-  "Mutton Juicy Mandi",
-  "Fish Fry Mandi"
-].forEach(x => insertCategories.run(x));
-
-const cats = Object.fromEntries(db.prepare("SELECT id,name FROM categories").all().map(x => [x.name, x.id]));
-const insertItems = db.prepare("INSERT INTO items(name, category_id, price, image) VALUES (?, ?, ?, ?)");
-const images = {
-  "Chicken Fry Mandi (1 Piece)": "https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=500&q=80",
-  "Chicken Fry Mandi (2 Piece)": "https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=500&q=80",
-  "Chicken Fry Mandi (3 Piece)": "https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=500&q=80",
-  "Chicken Fry Mandi (4 Piece)": "https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=500&q=80",
-  "Chicken Broasted Mandi (1 Piece)": "https://images.unsplash.com/photo-1559847844-5315695dadae?auto=format&fit=crop&w=500&q=80",
-  "Chicken Broasted Mandi (2 Piece)": "https://images.unsplash.com/photo-1559847844-5315695dadae?auto=format&fit=crop&w=500&q=80",
-  "Chicken Broasted Mandi (3 Piece)": "https://images.unsplash.com/photo-1559847844-5315695dadae?auto=format&fit=crop&w=500&q=80",
-  "Chicken Broasted Mandi (4 Piece)": "https://images.unsplash.com/photo-1559847844-5315695dadae?auto=format&fit=crop&w=500&q=80",
-  "Mutton Juicy Mandi (1 Piece)": "https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?auto=format&fit=crop&w=500&q=80",
-  "Mutton Juicy Mandi (2 Piece)": "https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?auto=format&fit=crop&w=500&q=80",
-  "Mutton Juicy Mandi (3 Piece)": "https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?auto=format&fit=crop&w=500&q=80",
-  "Mutton Juicy Mandi (4 Piece)": "https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?auto=format&fit=crop&w=500&q=80",
-  "Fish Fry Mandi Full (2 Person)": "https://images.unsplash.com/photo-1559847844-5315695dadae?auto=format&fit=crop&w=500&q=80",
-  "Fish Fry Mandi Full (3 Person)": "https://images.unsplash.com/photo-1559847844-5315695dadae?auto=format&fit=crop&w=500&q=80",
-  "Fish Fry Mandi Full (4 Person)": "https://images.unsplash.com/photo-1559847844-5315695dadae?auto=format&fit=crop&w=500&q=80"
+const money = value => Number(Number(value).toFixed(2));
+const positiveInt = value => {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
 };
+const validId = value => /^\d+$/.test(String(value)) && Number(value) > 0;
+const clean = (value, max = 255) => String(value ?? "").trim().slice(0, max);
 
-[
-  ["Chicken Fry Mandi (1 Piece)", cats["Chicken Fry Mandi"], 260],
-  ["Chicken Fry Mandi (2 Piece)", cats["Chicken Fry Mandi"], 470],
-  ["Chicken Fry Mandi (3 Piece)", cats["Chicken Fry Mandi"], 630],
-  ["Chicken Fry Mandi (4 Piece)", cats["Chicken Fry Mandi"], 840],
-  ["Chicken Broasted Mandi (1 Piece)", cats["Chicken Broasted Mandi"], 290],
-  ["Chicken Broasted Mandi (2 Piece)", cats["Chicken Broasted Mandi"], 530],
-  ["Chicken Broasted Mandi (3 Piece)", cats["Chicken Broasted Mandi"], 720],
-  ["Chicken Broasted Mandi (4 Piece)", cats["Chicken Broasted Mandi"], 960],
-  ["Mutton Juicy Mandi (1 Piece)", cats["Mutton Juicy Mandi"], 320],
-  ["Mutton Juicy Mandi (2 Piece)", cats["Mutton Juicy Mandi"], 600],
-  ["Mutton Juicy Mandi (3 Piece)", cats["Mutton Juicy Mandi"], 870],
-  ["Mutton Juicy Mandi (4 Piece)", cats["Mutton Juicy Mandi"], 1140],
-  ["Fish Fry Mandi Full (2 Person)", cats["Fish Fry Mandi"], 500],
-  ["Fish Fry Mandi Full (3 Person)", cats["Fish Fry Mandi"], 680],
-  ["Fish Fry Mandi Full (4 Person)", cats["Fish Fry Mandi"], 900]
-].forEach(([name, categoryId, price]) => insertItems.run(name, categoryId, price, images[name] || ""));
+function seedDatabase() {
+  const categories = [
+    "Chicken Fry Mandi",
+    "Chicken Broasted Mandi",
+    "Mutton Juicy Mandi",
+    "Fish Fry Mandi"
+  ];
 
-if (!db.prepare("SELECT id FROM settings WHERE id=1").get()) {
-  db.prepare("INSERT INTO settings(id,restaurant_name,address,phone,paper_size) VALUES(1,?,?,?,?)")
-    .run("My Restaurant", "", "", "80mm");
+  const insertCategory = db.prepare("INSERT OR IGNORE INTO categories(name) VALUES (?)");
+  const seedCategories = db.transaction(() => {
+    for (const name of categories) insertCategory.run(name);
+  });
+  seedCategories();
+
+  const itemCount = db.prepare("SELECT COUNT(*) AS count FROM items").get().count;
+  if (itemCount === 0) {
+    const ids = Object.fromEntries(
+      db.prepare("SELECT id, name FROM categories").all().map(row => [row.name, row.id])
+    );
+    const rows = [
+      ["Chicken Fry Mandi (1 Piece)", "Chicken Fry Mandi", 260],
+      ["Chicken Fry Mandi (2 Piece)", "Chicken Fry Mandi", 470],
+      ["Chicken Fry Mandi (3 Piece)", "Chicken Fry Mandi", 630],
+      ["Chicken Fry Mandi (4 Piece)", "Chicken Fry Mandi", 840],
+      ["Chicken Broasted Mandi (1 Piece)", "Chicken Broasted Mandi", 290],
+      ["Chicken Broasted Mandi (2 Piece)", "Chicken Broasted Mandi", 530],
+      ["Chicken Broasted Mandi (3 Piece)", "Chicken Broasted Mandi", 720],
+      ["Chicken Broasted Mandi (4 Piece)", "Chicken Broasted Mandi", 960],
+      ["Mutton Juicy Mandi (1 Piece)", "Mutton Juicy Mandi", 320],
+      ["Mutton Juicy Mandi (2 Piece)", "Mutton Juicy Mandi", 600],
+      ["Mutton Juicy Mandi (3 Piece)", "Mutton Juicy Mandi", 870],
+      ["Mutton Juicy Mandi (4 Piece)", "Mutton Juicy Mandi", 1140],
+      ["Fish Fry Mandi Full (2 Person)", "Fish Fry Mandi", 500],
+      ["Fish Fry Mandi Full (3 Person)", "Fish Fry Mandi", 680],
+      ["Fish Fry Mandi Full (4 Person)", "Fish Fry Mandi", 900]
+    ];
+    const addItem = db.prepare(
+      "INSERT INTO items(name, category_id, price, available, image) VALUES (?, ?, ?, 1, ?)"
+    );
+    const seedItems = db.transaction(() => {
+      for (const [name, category, price] of rows) {
+        addItem.run(name, ids[category], price, "");
+      }
+    });
+    seedItems();
+  }
+
+  db.prepare(`
+    INSERT INTO settings(id, restaurant_name, address, phone, paper_size)
+    VALUES (1, 'My Restaurant', '', '', '80mm')
+    ON CONFLICT(id) DO NOTHING
+  `).run();
 }
 
-const money = n => Number(Number(n).toFixed(2));
+seedDatabase();
 
-app.get("/api/categories", (req,res) => {
-  res.json(db.prepare("SELECT * FROM categories ORDER BY name").all());
+function makeBillNumber() {
+  const stamp = Date.now().toString(36).toUpperCase();
+  let billNo = `B${stamp}`;
+  let counter = 1;
+  while (db.prepare("SELECT 1 FROM bills WHERE bill_no = ?").get(billNo)) {
+    billNo = `B${stamp}-${counter++}`;
+  }
+  return billNo;
+}
+
+function getBill(id) {
+  const bill = db.prepare("SELECT * FROM bills WHERE id = ?").get(id);
+  if (!bill) return null;
+  bill.items = db.prepare("SELECT * FROM bill_items WHERE bill_id = ? ORDER BY id").all(id);
+  return bill;
+}
+
+app.get("/", (req, res) => {
+  res.json({
+    ok: true,
+    service: "restaurant-billing-backend",
+    message: "Billing API is running"
+  });
 });
 
-app.post("/api/categories", (req,res) => {
+app.get("/api/health", (req, res) => {
+  res.json({
+    ok: true,
+    service: "billing-backend",
+    database: path.basename(dbPath),
+    time: new Date().toISOString()
+  });
+});
+
+// Categories
+app.get("/api/categories", (req, res) => {
+  res.json(db.prepare("SELECT * FROM categories ORDER BY id").all());
+});
+
+app.post("/api/categories", (req, res) => {
+  const name = clean(req.body.name, 100);
+  if (!name) return res.status(400).json({ error: "Category name is required" });
+
   try {
-    const name = String(req.body.name || "").trim();
-    if (!name) return res.status(400).json({error:"Category name is required"});
-    const info = db.prepare("INSERT INTO categories(name) VALUES (?)").run(name);
-    res.json({id: info.lastInsertRowid, name});
-  } catch {
-    res.status(400).json({error:"Category already exists"});
+    const result = db.prepare("INSERT INTO categories(name) VALUES (?)").run(name);
+    res.status(201).json({ id: Number(result.lastInsertRowid), name });
+  } catch (error) {
+    if (String(error.message).includes("UNIQUE")) {
+      return res.status(409).json({ error: "Category already exists" });
+    }
+    throw error;
   }
 });
 
-app.put("/api/categories/:id", (req,res) => {
-  const name = String(req.body.name || "").trim();
-  if (!name) return res.status(400).json({error:"Category name is required"});
-  db.prepare("UPDATE categories SET name=? WHERE id=?").run(name, req.params.id);
-  res.json({ok:true});
-});
+app.put("/api/categories/:id", (req, res) => {
+  if (!validId(req.params.id)) return res.status(400).json({ error: "Invalid category ID" });
+  const name = clean(req.body.name, 100);
+  if (!name) return res.status(400).json({ error: "Category name is required" });
 
-app.delete("/api/categories/:id", (req,res) => {
-  db.prepare("UPDATE items SET category_id=NULL WHERE category_id=?").run(req.params.id);
-  db.prepare("DELETE FROM categories WHERE id=?").run(req.params.id);
-  res.json({ok:true});
-});
-
-app.get("/api/items", (req,res) => {
-  const rows = db.prepare(`
-    SELECT items.*, categories.name category_name
-    FROM items LEFT JOIN categories ON categories.id=items.category_id
-    ORDER BY items.name
-  `).all();
-  res.json(rows);
-});
-
-app.post("/api/items", (req,res) => {
-  const {name, category_id, price, available=true, image=""} = req.body;
-  if (!String(name||"").trim()) return res.status(400).json({error:"Item name is required"});
-  const p = Number(price);
-  if (!Number.isFinite(p) || p < 0) return res.status(400).json({error:"Invalid price"});
-  const info = db.prepare(
-    "INSERT INTO items(name,category_id,price,available,image) VALUES(?,?,?,?,?)"
-  ).run(String(name).trim(), category_id || null, p, available ? 1 : 0, String(image || ""));
-  res.json({id:info.lastInsertRowid});
-});
-
-app.put("/api/items/:id", (req,res) => {
-  const {name, category_id, price, available=true, image=""} = req.body;
-  const p = Number(price);
-  if (!String(name||"").trim() || !Number.isFinite(p) || p < 0)
-    return res.status(400).json({error:"Invalid item"});
-  db.prepare(
-    "UPDATE items SET name=?,category_id=?,price=?,available=?,image=? WHERE id=?"
-  ).run(String(name).trim(), category_id || null, p, available ? 1 : 0, String(image || ""), req.params.id);
-  res.json({ok:true});
-});
-
-app.delete("/api/items/:id", (req,res) => {
-  db.prepare("DELETE FROM items WHERE id=?").run(req.params.id);
-  res.json({ok:true});
-});
-
-app.post("/api/bills", (req,res) => {
-  const {items=[], payment_method="Cash"} = req.body;
-  if (!items.length) return res.status(400).json({error:"Bill has no items"});
-  const total = money(items.reduce((s,x)=>s + Number(x.price)*Number(x.quantity),0));
-  const now = new Date();
-  const stamp = now.toISOString();
-  const billNo = `B${Date.now().toString().slice(-8)}`;
-
-  const tx = db.transaction(() => {
-    const bill = db.prepare(
-      "INSERT INTO bills(bill_no,total,payment_method,created_at) VALUES(?,?,?,?)"
-    ).run(billNo,total,payment_method,stamp);
-    const insert = db.prepare(
-      "INSERT INTO bill_items(bill_id,item_id,item_name,quantity,price,amount) VALUES(?,?,?,?,?,?)"
-    );
-    for (const x of items) {
-      insert.run(bill.lastInsertRowid, x.id || null, x.name, Number(x.quantity), Number(x.price), money(Number(x.price)*Number(x.quantity)));
+  try {
+    const result = db.prepare("UPDATE categories SET name = ? WHERE id = ?").run(name, req.params.id);
+    if (!result.changes) return res.status(404).json({ error: "Category not found" });
+    res.json({ ok: true });
+  } catch (error) {
+    if (String(error.message).includes("UNIQUE")) {
+      return res.status(409).json({ error: "Category already exists" });
     }
-    return bill.lastInsertRowid;
+    throw error;
+  }
+});
+
+app.delete("/api/categories/:id", (req, res) => {
+  if (!validId(req.params.id)) return res.status(400).json({ error: "Invalid category ID" });
+  const result = db.prepare("DELETE FROM categories WHERE id = ?").run(req.params.id);
+  if (!result.changes) return res.status(404).json({ error: "Category not found" });
+  res.json({ ok: true });
+});
+
+// Items / menu
+app.get("/api/items", (req, res) => {
+  const onlyAvailable = req.query.available === "true";
+  const sql = `
+    SELECT items.*, categories.name AS category_name
+    FROM items
+    LEFT JOIN categories ON categories.id = items.category_id
+    ${onlyAvailable ? "WHERE items.available = 1" : ""}
+    ORDER BY COALESCE(categories.id, 999999), items.id
+  `;
+  res.json(db.prepare(sql).all());
+});
+
+app.post("/api/items", (req, res) => {
+  const name = clean(req.body.name, 150);
+  const price = Number(req.body.price);
+  const categoryId = req.body.category_id ? Number(req.body.category_id) : null;
+  const image = clean(req.body.image, 1000);
+
+  if (!name || !Number.isFinite(price) || price < 0) {
+    return res.status(400).json({ error: "Valid name and price are required" });
+  }
+  if (categoryId !== null && !validId(categoryId)) {
+    return res.status(400).json({ error: "Invalid category ID" });
+  }
+  if (categoryId !== null && !db.prepare("SELECT id FROM categories WHERE id = ?").get(categoryId)) {
+    return res.status(400).json({ error: "Category not found" });
+  }
+
+  const result = db.prepare(
+    "INSERT INTO items(name, category_id, price, available, image) VALUES (?, ?, ?, ?, ?)"
+  ).run(name, categoryId, money(price), req.body.available === false ? 0 : 1, image);
+
+  res.status(201).json({ id: Number(result.lastInsertRowid) });
+});
+
+app.put("/api/items/:id", (req, res) => {
+  if (!validId(req.params.id)) return res.status(400).json({ error: "Invalid item ID" });
+  const name = clean(req.body.name, 150);
+  const price = Number(req.body.price);
+  const categoryId = req.body.category_id ? Number(req.body.category_id) : null;
+  const image = clean(req.body.image, 1000);
+
+  if (!name || !Number.isFinite(price) || price < 0) {
+    return res.status(400).json({ error: "Valid name and price are required" });
+  }
+  if (categoryId !== null && !validId(categoryId)) {
+    return res.status(400).json({ error: "Invalid category ID" });
+  }
+  if (categoryId !== null && !db.prepare("SELECT id FROM categories WHERE id = ?").get(categoryId)) {
+    return res.status(400).json({ error: "Category not found" });
+  }
+
+  const result = db.prepare(`
+    UPDATE items
+    SET name = ?, category_id = ?, price = ?, available = ?, image = ?
+    WHERE id = ?
+  `).run(
+    name,
+    categoryId,
+    money(price),
+    req.body.available === false ? 0 : 1,
+    image,
+    req.params.id
+  );
+
+  if (!result.changes) return res.status(404).json({ error: "Item not found" });
+  res.json({ ok: true });
+});
+
+app.delete("/api/items/:id", (req, res) => {
+  if (!validId(req.params.id)) return res.status(400).json({ error: "Invalid item ID" });
+  const result = db.prepare("DELETE FROM items WHERE id = ?").run(req.params.id);
+  if (!result.changes) return res.status(404).json({ error: "Item not found" });
+  res.json({ ok: true });
+});
+
+// Bills
+app.post("/api/bills", (req, res) => {
+  const rawItems = Array.isArray(req.body.items) ? req.body.items : [];
+  if (!rawItems.length) return res.status(400).json({ error: "Bill has no items" });
+
+  const paymentMethod = clean(req.body.payment_method || "Cash", 30);
+  const allowedPayments = new Set(["Cash", "UPI", "Card"]);
+  if (!allowedPayments.has(paymentMethod)) {
+    return res.status(400).json({ error: "Payment method must be Cash, UPI, or Card" });
+  }
+
+  const items = rawItems.map(item => ({
+    id: item.id == null || item.id === "" ? null : Number(item.id),
+    name: clean(item.name, 150),
+    quantity: positiveInt(item.quantity),
+    price: Number(item.price)
+  }));
+
+  if (items.some(item => !item.name || !item.quantity || !Number.isFinite(item.price) || item.price < 0)) {
+    return res.status(400).json({ error: "Invalid bill item" });
+  }
+
+  const total = money(items.reduce((sum, item) => sum + item.price * item.quantity, 0));
+  const createdAt = new Date().toISOString();
+  const billNo = makeBillNumber();
+
+  const createBill = db.transaction(() => {
+    const bill = db.prepare(
+      "INSERT INTO bills(bill_no, total, payment_method, created_at) VALUES (?, ?, ?, ?)"
+    ).run(billNo, total, paymentMethod, createdAt);
+
+    const addItem = db.prepare(`
+      INSERT INTO bill_items(bill_id, item_id, item_name, quantity, price, amount)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const item of items) {
+      addItem.run(
+        bill.lastInsertRowid,
+        item.id,
+        item.name,
+        item.quantity,
+        money(item.price),
+        money(item.price * item.quantity)
+      );
+    }
+
+    return Number(bill.lastInsertRowid);
   });
 
-  const billId = tx();
-  res.json({id: billId, bill_no: billNo, total});
+  const id = createBill();
+  res.status(201).json({ id, bill_no: billNo, total, payment_method: paymentMethod, created_at: createdAt });
 });
 
-app.get("/api/bills", (req,res) => {
-  const bills = db.prepare("SELECT * FROM bills ORDER BY id DESC").all();
+app.get("/api/bills", (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+  const bills = db.prepare("SELECT * FROM bills ORDER BY id DESC LIMIT ?").all(limit);
   res.json(bills);
 });
 
-app.get("/api/bills/:id", (req,res) => {
-  const bill = db.prepare("SELECT * FROM bills WHERE id=?").get(req.params.id);
-  if (!bill) return res.status(404).json({error:"Bill not found"});
-  bill.items = db.prepare("SELECT * FROM bill_items WHERE bill_id=? ORDER BY id").all(req.params.id);
+app.get("/api/bills/:id", (req, res) => {
+  if (!validId(req.params.id)) return res.status(400).json({ error: "Invalid bill ID" });
+  const bill = getBill(req.params.id);
+  if (!bill) return res.status(404).json({ error: "Bill not found" });
   res.json(bill);
 });
 
-app.get("/api/reports/daily", (req,res) => {
-  const rows = db.prepare(`
+app.delete("/api/bills/:id", (req, res) => {
+  if (!validId(req.params.id)) return res.status(400).json({ error: "Invalid bill ID" });
+  const result = db.prepare("DELETE FROM bills WHERE id = ?").run(req.params.id);
+  if (!result.changes) return res.status(404).json({ error: "Bill not found" });
+  res.json({ ok: true });
+});
+
+// Reports
+app.get("/api/reports/daily", (req, res) => {
+  const summary = db.prepare(`
     SELECT
-      COUNT(*) bills,
-      COALESCE(SUM(total),0) total,
-      COALESCE(SUM(CASE WHEN payment_method='Cash' THEN total ELSE 0 END),0) cash,
-      COALESCE(SUM(CASE WHEN payment_method='UPI' THEN total ELSE 0 END),0) upi
+      COUNT(*) AS bills,
+      COALESCE(SUM(total), 0) AS total,
+      COALESCE(SUM(CASE WHEN payment_method = 'Cash' THEN total ELSE 0 END), 0) AS cash,
+      COALESCE(SUM(CASE WHEN payment_method = 'UPI' THEN total ELSE 0 END), 0) AS upi,
+      COALESCE(SUM(CASE WHEN payment_method = 'Card' THEN total ELSE 0 END), 0) AS card
     FROM bills
-    WHERE date(datetime(created_at,'localtime')) = date('now','localtime')
+    WHERE date(datetime(created_at, 'localtime')) = date('now', 'localtime')
   `).get();
+
   const top = db.prepare(`
-    SELECT item_name name, SUM(quantity) quantity, SUM(amount) amount
+    SELECT item_name AS name, SUM(quantity) AS quantity, SUM(amount) AS amount
     FROM bill_items
     WHERE bill_id IN (
-      SELECT id FROM bills WHERE date(datetime(created_at,'localtime')) = date('now','localtime')
+      SELECT id FROM bills
+      WHERE date(datetime(created_at, 'localtime')) = date('now', 'localtime')
     )
-    GROUP BY item_name ORDER BY quantity DESC LIMIT 10
+    GROUP BY item_name
+    ORDER BY amount DESC
+    LIMIT 10
   `).all();
-  res.json({summary:rows, top});
+
+  res.json({ summary, top });
 });
 
-app.get("/api/settings", (req,res) => {
-  res.json(db.prepare("SELECT * FROM settings WHERE id=1").get());
+// Settings
+app.get("/api/settings", (req, res) => {
+  res.json(db.prepare("SELECT * FROM settings WHERE id = 1").get());
 });
 
-app.put("/api/settings", (req,res) => {
-  const {restaurant_name="",address="",phone="",paper_size="80mm"} = req.body;
+app.put("/api/settings", (req, res) => {
+  const restaurantName = clean(req.body.restaurant_name || "My Restaurant", 150) || "My Restaurant";
+  const address = clean(req.body.address, 300);
+  const phone = clean(req.body.phone, 50);
+  const paperSize = ["58mm", "80mm"].includes(req.body.paper_size) ? req.body.paper_size : "80mm";
+
   db.prepare(`
-    UPDATE settings SET restaurant_name=?,address=?,phone=?,paper_size=? WHERE id=1
-  `).run(restaurant_name,address,phone,paper_size);
-  res.json({ok:true});
+    UPDATE settings
+    SET restaurant_name = ?, address = ?, phone = ?, paper_size = ?
+    WHERE id = 1
+  `).run(restaurantName, address, phone, paperSize);
+
+  res.json({ ok: true });
 });
 
-app.get("/api/health", (req,res)=>res.json({ok:true}));
+app.use((req, res) => {
+  res.status(404).json({ error: "API route not found" });
+});
 
-const frontendDist = path.join(__dirname, "../frontend/dist");
-const frontendIndex = path.join(frontendDist, "index.html");
-if (fs.existsSync(frontendIndex)) {
-  app.use(express.static(frontendDist));
-  app.use((req, res, next) => {
-    if (req.path.startsWith("/api/")) return next();
-    res.sendFile(frontendIndex);
+app.use((error, req, res, next) => {
+  console.error("API error:", error);
+  if (res.headersSent) return next(error);
+  res.status(500).json({ error: "Internal server error" });
+});
+
+const server = app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Billing API running on port ${PORT}`);
+  console.log(`SQLite database: ${dbPath}`);
+});
+
+function shutdown(signal) {
+  console.log(`${signal} received. Shutting down...`);
+  server.close(() => {
+    try { db.close(); } catch {}
+    process.exit(0);
   });
 }
 
-const PORT = process.env.PORT || 4000;
-
-if (process.env.VERCEL) {
-  export default app;
-} else {
-  app.listen(PORT, ()=>console.log(`Backend running at http://localhost:${PORT}`));
-}
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
