@@ -112,6 +112,7 @@ const billingMenuStyles = `
 function Billing(){
   const [items,setItems]=useState([]),[cats,setCats]=useState([]),[cat,setCat]=useState(""),[search,setSearch]=useState("");
   const [cart,setCart]=useState([]),[payment,setPayment]=useState("Cash"),[settings,setSettings]=useState(null),[saving,setSaving]=useState(false);
+  const [showSplitModal,setShowSplitModal]=useState(false),[upiAmount,setUpiAmount]=useState(""),[cashAmount,setCashAmount]=useState("");
 
   useEffect(()=>{Promise.all([api.items(),api.categories(),api.settings()]).then(([i,c,s])=>{
     const normalized = i.map(item => ({
@@ -130,13 +131,25 @@ function Billing(){
   function add(item){setCart(c=>{const found=c.find(x=>x.id===item.id); return found?c.map(x=>x.id===item.id?{...x,quantity:x.quantity+1}:x):[...c,{...item,quantity:1}]})}
   function change(id,d){setCart(c=>c.map(x=>x.id===id?{...x,quantity:x.quantity+d}:x).filter(x=>x.quantity>0))}
 
+  const handleSplitPayment=()=>{
+    const upi=Number(upiAmount)||0;
+    const cash=Number(cashAmount)||0;
+    if(upi+cash!==total){return alert(`Total must equal ₹${total.toFixed(2)}`);}
+    setPayment({type:"Split",upi,cash});
+    setShowSplitModal(false);
+    setUpiAmount("");
+    setCashAmount("");
+  };
+
   async function savePrint(){
     if(!cart.length)return alert("Add items first");
     setSaving(true);
     try{
-      const bill=await api.createBill({items:cart,payment_method:payment});
+      const paymentMethod=typeof payment==="object"?`Split: ₹${payment.upi.toFixed(2)} UPI + ₹${payment.cash.toFixed(2)} Cash`:payment;
+      const bill=await api.createBill({items:cart,payment_method:paymentMethod});
       const full=await api.bill(bill.id);
       setCart([]);
+      setPayment("Cash");
       printReceipt(full,settings);
     }catch(e){alert(e.message)} finally{setSaving(false)}
   }
@@ -155,11 +168,12 @@ function Billing(){
         <div className="bill-bottom">
           <div className="total-line"><span>Subtotal</span><b>{money(total)}</b></div>
           <div className="total-line grand"><span>Total</span><b>{money(total)}</b></div>
-          <div className="payment"><span>Payment</span><div><button className={payment==="Cash"?"pay selected": "pay"} onClick={()=>setPayment("Cash")}>💵 Cash</button><button className={payment==="UPI"?"pay selected":"pay"} onClick={()=>setPayment("UPI")}>📱 UPI</button></div></div>
+          <div className="payment"><span>Payment</span><div><button className={payment==="Cash"?"pay selected": "pay"} onClick={()=>setPayment("Cash")}>💵 Cash</button><button className={payment==="UPI"?"pay selected":"pay"} onClick={()=>setPayment("UPI")}>📱 UPI</button><button className={typeof payment==="object"?"pay selected":"pay"} onClick={()=>setShowSplitModal(true)}>🔄 Half</button></div></div>
           <div className="action-row"><button className="secondary" onClick={()=>setCart([])}>Reset Orders</button><button disabled={saving||!cart.length} className="primary print" onClick={savePrint}><Printer size={18}/>{saving?"Saving...":"Save & Print"}</button></div>
         </div>
       </section>
     </div>
+    {showSplitModal&&<Modal title="Split Payment" onClose={()=>{setShowSplitModal(false);setUpiAmount("");setCashAmount("")}}><form onSubmit={e=>{e.preventDefault();handleSplitPayment()}} className="form"><label>UPI Amount<input type="number" step="0.01" min="0" value={upiAmount} onChange={e=>setUpiAmount(e.target.value)} required placeholder="Enter UPI amount"/></label><label>Cash Amount<input type="number" step="0.01" min="0" value={cashAmount} onChange={e=>setCashAmount(e.target.value)} required placeholder="Enter Cash amount"/></label><div style={{background:"#f0f4f8",padding:"12px",borderRadius:"8px",marginBottom:"16px",fontSize:"14px"}}><div>Total Amount: ₹{total.toFixed(2)}</div><div>UPI: ₹{(Number(upiAmount)||0).toFixed(2)}</div><div>Cash: ₹{(Number(cashAmount)||0).toFixed(2)}</div><div style={{fontWeight:"bold",marginTop:"8px"}}>Sum: ₹{(Number(upiAmount||0)+Number(cashAmount||0)).toFixed(2)}</div></div><div className="action-row"><button type="button" className="secondary" onClick={()=>{setShowSplitModal(false);setUpiAmount("");setCashAmount("")}}>Cancel</button><button type="submit" className="primary">Confirm Split Payment</button></div></form></Modal>}
   </>
 }
 
