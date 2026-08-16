@@ -152,6 +152,8 @@ function getBill(id) {
   return bill;
 }
 
+const apiRouter = express.Router();
+
 app.get("/", (req, res) => {
   res.json({
     ok: true,
@@ -160,7 +162,7 @@ app.get("/", (req, res) => {
   });
 });
 
-app.get("/api/health", (req, res) => {
+apiRouter.get("/health", (req, res) => {
   res.json({
     ok: true,
     service: "billing-backend",
@@ -170,7 +172,7 @@ app.get("/api/health", (req, res) => {
 });
 
 // API Info
-app.get("/api", (req, res) => {
+apiRouter.get("/", (req, res) => {
   res.json({
     ok: true,
     service: "Restaurant Billing API",
@@ -203,11 +205,11 @@ app.get("/api", (req, res) => {
 });
 
 // Categories
-app.get("/api/categories", (req, res) => {
+apiRouter.get("/categories", (req, res) => {
   res.json(db.prepare("SELECT * FROM categories ORDER BY id").all());
 });
 
-app.post("/api/categories", (req, res) => {
+apiRouter.post("/categories", (req, res) => {
   const name = clean(req.body.name, 100);
   if (!name) return res.status(400).json({ error: "Category name is required" });
 
@@ -222,7 +224,7 @@ app.post("/api/categories", (req, res) => {
   }
 });
 
-app.put("/api/categories/:id", (req, res) => {
+apiRouter.put("/categories/:id", (req, res) => {
   if (!validId(req.params.id)) return res.status(400).json({ error: "Invalid category ID" });
   const name = clean(req.body.name, 100);
   if (!name) return res.status(400).json({ error: "Category name is required" });
@@ -239,7 +241,7 @@ app.put("/api/categories/:id", (req, res) => {
   }
 });
 
-app.delete("/api/categories/:id", (req, res) => {
+apiRouter.delete("/categories/:id", (req, res) => {
   if (!validId(req.params.id)) return res.status(400).json({ error: "Invalid category ID" });
   const result = db.prepare("DELETE FROM categories WHERE id = ?").run(req.params.id);
   if (!result.changes) return res.status(404).json({ error: "Category not found" });
@@ -247,7 +249,7 @@ app.delete("/api/categories/:id", (req, res) => {
 });
 
 // Items / menu
-app.get("/api/items", (req, res) => {
+apiRouter.get("/items", (req, res) => {
   const onlyAvailable = req.query.available === "true";
   const sql = `
     SELECT items.*, categories.name AS category_name
@@ -259,7 +261,7 @@ app.get("/api/items", (req, res) => {
   res.json(db.prepare(sql).all());
 });
 
-app.post("/api/items", (req, res) => {
+apiRouter.post("/items", (req, res) => {
   const name = clean(req.body.name, 150);
   const price = Number(req.body.price);
   const categoryId = req.body.category_id ? Number(req.body.category_id) : null;
@@ -282,7 +284,7 @@ app.post("/api/items", (req, res) => {
   res.status(201).json({ id: Number(result.lastInsertRowid) });
 });
 
-app.put("/api/items/:id", (req, res) => {
+apiRouter.put("/items/:id", (req, res) => {
   if (!validId(req.params.id)) return res.status(400).json({ error: "Invalid item ID" });
   const name = clean(req.body.name, 150);
   const price = Number(req.body.price);
@@ -316,7 +318,7 @@ app.put("/api/items/:id", (req, res) => {
   res.json({ ok: true });
 });
 
-app.delete("/api/items/:id", (req, res) => {
+apiRouter.delete("/items/:id", (req, res) => {
   if (!validId(req.params.id)) return res.status(400).json({ error: "Invalid item ID" });
   const result = db.prepare("DELETE FROM items WHERE id = ?").run(req.params.id);
   if (!result.changes) return res.status(404).json({ error: "Item not found" });
@@ -324,7 +326,7 @@ app.delete("/api/items/:id", (req, res) => {
 });
 
 // Bills
-app.post("/api/bills", (req, res) => {
+apiRouter.post("/bills", (req, res) => {
   const rawItems = Array.isArray(req.body.items) ? req.body.items : [];
   if (!rawItems.length) return res.status(400).json({ error: "Bill has no items" });
 
@@ -377,20 +379,20 @@ app.post("/api/bills", (req, res) => {
   res.status(201).json({ id, bill_no: billNo, total, payment_method: paymentMethod, created_at: createdAt });
 });
 
-app.get("/api/bills", (req, res) => {
+apiRouter.get("/bills", (req, res) => {
   const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
   const bills = db.prepare("SELECT * FROM bills ORDER BY id DESC LIMIT ?").all(limit);
   res.json(bills);
 });
 
-app.get("/api/bills/:id", (req, res) => {
+apiRouter.get("/bills/:id", (req, res) => {
   if (!validId(req.params.id)) return res.status(400).json({ error: "Invalid bill ID" });
   const bill = getBill(req.params.id);
   if (!bill) return res.status(404).json({ error: "Bill not found" });
   res.json(bill);
 });
 
-app.delete("/api/bills/:id", (req, res) => {
+apiRouter.delete("/bills/:id", (req, res) => {
   if (!validId(req.params.id)) return res.status(400).json({ error: "Invalid bill ID" });
   const result = db.prepare("DELETE FROM bills WHERE id = ?").run(req.params.id);
   if (!result.changes) return res.status(404).json({ error: "Bill not found" });
@@ -398,7 +400,7 @@ app.delete("/api/bills/:id", (req, res) => {
 });
 
 // Reports
-app.get("/api/reports/daily", (req, res) => {
+apiRouter.get("/reports/daily", (req, res) => {
   const summary = db.prepare(`
     SELECT
       COUNT(*) AS bills,
@@ -426,11 +428,11 @@ app.get("/api/reports/daily", (req, res) => {
 });
 
 // Settings
-app.get("/api/settings", (req, res) => {
+apiRouter.get("/settings", (req, res) => {
   res.json(db.prepare("SELECT * FROM settings WHERE id = 1").get());
 });
 
-app.put("/api/settings", (req, res) => {
+apiRouter.put("/settings", (req, res) => {
   const restaurantName = clean(req.body.restaurant_name || "My Restaurant", 150) || "My Restaurant";
   const address = clean(req.body.address, 300);
   const phone = clean(req.body.phone, 50);
@@ -446,7 +448,7 @@ app.put("/api/settings", (req, res) => {
 });
 
 // Clear Data
-app.post("/api/clear-data", (req, res) => {
+apiRouter.post("/clear-data", (req, res) => {
   const password = req.body.password;
   if (password !== "nadeem@6248") {
     return res.status(401).json({ error: "Invalid password" });
@@ -460,6 +462,9 @@ app.post("/api/clear-data", (req, res) => {
     res.status(500).json({ error: "Failed to clear data" });
   }
 });
+
+app.use("/api", apiRouter);
+app.use("/", apiRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: "API route not found" });
