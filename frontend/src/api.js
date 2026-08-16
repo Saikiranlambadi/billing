@@ -24,5 +24,6 @@ export const api = {
   bill: id=>request(`/bills/${id}`),
   daily: ()=>request("/reports/daily"),
   settings: ()=>request("/settings"),
-  saveSettings: body=>request("/settings",{method:"PUT",body:JSON.stringify(body)})
+  saveSettings: body=>request("/settings",{method:"PUT",body:JSON.stringify(body)}),
+  clearData: password=>request("/clear-data",{method:"POST",body:JSON.stringify({password})})
 };

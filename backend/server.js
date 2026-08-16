@@ -412,6 +412,22 @@ app.put("/api/settings", (req, res) => {
   res.json({ ok: true });
 });
 
+// Clear Data
+app.post("/api/clear-data", (req, res) => {
+  const password = req.body.password;
+  if (password !== "nadeem@6248") {
+    return res.status(401).json({ error: "Invalid password" });
+  }
+
+  try {
+    db.exec("DELETE FROM bill_items");
+    db.exec("DELETE FROM bills");
+    res.json({ ok: true, message: "All data cleared successfully" });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to clear data" });
+  }
+});
+
 app.use((req, res) => {
   res.status(404).json({ error: "API route not found" });
 });

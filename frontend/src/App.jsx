@@ -156,7 +156,7 @@ function Billing(){
           <div className="total-line"><span>Subtotal</span><b>{money(total)}</b></div>
           <div className="total-line grand"><span>Total</span><b>{money(total)}</b></div>
           <div className="payment"><span>Payment</span><div><button className={payment==="Cash"?"pay selected": "pay"} onClick={()=>setPayment("Cash")}>💵 Cash</button><button className={payment==="UPI"?"pay selected":"pay"} onClick={()=>setPayment("UPI")}>📱 UPI</button></div></div>
-          <div className="action-row"><button className="secondary" onClick={()=>setCart([])}>Clear</button><button disabled={saving||!cart.length} className="primary print" onClick={savePrint}><Printer size={18}/>{saving?"Saving...":"Save & Print"}</button></div>
+          <div className="action-row"><button className="secondary" onClick={()=>setCart([])}>Reset Orders</button><button disabled={saving||!cart.length} className="primary print" onClick={savePrint}><Printer size={18}/>{saving?"Saving...":"Save & Print"}</button></div>
         </div>
       </section>
     </div>
@@ -200,10 +200,24 @@ function Reports(){
 }
 
 function SettingsPage(){
-  const [form,setForm]=useState(null);useEffect(()=>api.settings().then(setForm),[]);
+  const [form,setForm]=useState(null);
+  const [showClearModal,setShowClearModal]=useState(false);
+  const [clearPassword,setClearPassword]=useState("");
+  useEffect(()=>api.settings().then(setForm),[]);
   if(!form)return <div className="loading">Loading...</div>;
   const save=async e=>{e.preventDefault();await api.saveSettings(form);alert("Settings saved")};
-  return <div className="settings-grid"><form className="panel form" onSubmit={save}><div><h3>Restaurant Information</h3><p>These details appear on printed receipts.</p></div><label>Restaurant Name<input value={form.restaurant_name} onChange={e=>setForm({...form,restaurant_name:e.target.value})}/></label><label>Address<textarea value={form.address} onChange={e=>setForm({...form,address:e.target.value})}/></label><label>Phone<input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></label><label>Paper Size<select value={form.paper_size} onChange={e=>setForm({...form,paper_size:e.target.value})}><option>80mm</option><option>58mm</option></select></label><button className="primary"><Save size={17}/> Save Settings</button></form><div className="panel"><h3>Printer Setup</h3><p>Install the thermal printer in Windows first.</p><div className="printer-box"><Printer size={38}/><b>Thermal Printer</b><span>Use an ESC/POS-compatible printer.</span><button className="secondary" onClick={()=>printTest(form)}>Print Test Receipt</button></div></div></div>
+  const handleClearData=async()=>{
+    if(!clearPassword){return alert("Please enter password");}
+    try{
+      await api.clearData(clearPassword);
+      alert("All data cleared successfully!");
+      setShowClearModal(false);
+      setClearPassword("");
+    }catch(e){
+      alert("Error: "+e.message);
+    }
+  };
+  return <div className="settings-grid"><form className="panel form" onSubmit={save}><div><h3>Restaurant Information</h3><p>These details appear on printed receipts.</p></div><label>Restaurant Name<input value={form.restaurant_name} onChange={e=>setForm({...form,restaurant_name:e.target.value})}/></label><label>Address<textarea value={form.address} onChange={e=>setForm({...form,address:e.target.value})}/></label><label>Phone<input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></label><label>Paper Size<select value={form.paper_size} onChange={e=>setForm({...form,paper_size:e.target.value})}><option>80mm</option><option>58mm</option></select></label><button className="primary"><Save size={17}/> Save Settings</button></form><div className="panel"><h3>Printer Setup</h3><p>Install the thermal printer in Windows first.</p><div className="printer-box"><Printer size={38}/><b>Thermal Printer</b><span>Use an ESC/POS-compatible printer.</span><button className="secondary" onClick={()=>printTest(form)}>Print Test Receipt</button></div></div><div className="panel"><h3>Danger Zone</h3><p>Clear all orders and bills data.</p><button className="secondary danger" onClick={()=>setShowClearModal(true)}>Clear All Data</button></div>{showClearModal&&<Modal title="Clear All Data" onClose={()=>{setShowClearModal(false);setClearPassword("")}}><form onSubmit={e=>{e.preventDefault();handleClearData()}} className="form"><p style={{color:"#d32f2f",fontWeight:"bold"}}>⚠️ This will permanently delete all orders and bills. This cannot be undone!</p><label>Enter Password to Confirm<input type="password" placeholder="Enter password" value={clearPassword} onChange={e=>setClearPassword(e.target.value)} required autoFocus/></label><div className="action-row"><button type="button" className="secondary" onClick={()=>{setShowClearModal(false);setClearPassword("")}}>Cancel</button><button type="submit" className="secondary danger">Clear All Data</button></div></form></Modal>}</div>
 }
 
 function Toolbar({title,search,setSearch,action,label}){return <div className="toolbar"><div><h1>{title}</h1><p>Manage your restaurant data.</p></div><div className="toolbar-actions">{search!==undefined&&<div className="search"><Search size={18}/><input placeholder="Search..." value={search} onChange={e=>setSearch(e.target.value)}/></div>}{action&&<button className="primary" onClick={action}><Plus size={18}/>{label}</button>}</div></div>}
