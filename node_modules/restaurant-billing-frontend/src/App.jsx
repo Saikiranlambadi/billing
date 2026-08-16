@@ -161,8 +161,16 @@ function Billing() {
     if (!cart.length) return alert("Add items first");
     setSaving(true);
     try {
-      const paymentMethod = typeof payment === "object" ? `Split: ₹${payment.upi.toFixed(2)} UPI + ₹${payment.cash.toFixed(2)} Cash` : payment;
-      const bill = await api.createBill({ items: cart, payment_method: paymentMethod });
+      const isSplit = typeof payment === "object";
+      const paymentMethod = isSplit ? `Split: ₹${payment.upi.toFixed(2)} UPI + ₹${payment.cash.toFixed(2)} Cash` : payment;
+      const billData = {
+        items: cart,
+        payment_method: paymentMethod,
+        cash_amount: isSplit ? payment.cash : (payment === "Cash" ? total : 0),
+        upi_amount: isSplit ? payment.upi : (payment === "UPI" ? total : 0),
+        card_amount: !isSplit && payment === "Card" ? total : 0
+      };
+      const bill = await api.createBill(billData);
       const full = await api.bill(bill.id);
       setCart([]);
       setPayment("Cash");

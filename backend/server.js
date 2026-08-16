@@ -47,6 +47,9 @@ CREATE TABLE IF NOT EXISTS bills (
   bill_no TEXT NOT NULL UNIQUE,
   total REAL NOT NULL CHECK(total >= 0),
   payment_method TEXT NOT NULL,
+  cash_amount REAL DEFAULT 0,
+  upi_amount REAL DEFAULT 0,
+  card_amount REAL DEFAULT 0,
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS bill_items (
@@ -70,6 +73,10 @@ CREATE INDEX IF NOT EXISTS idx_bills_created_at ON bills(created_at);
 CREATE INDEX IF NOT EXISTS idx_bill_items_bill_id ON bill_items(bill_id);
 CREATE INDEX IF NOT EXISTS idx_items_category_id ON items(category_id);
 `);
+
+try { db.exec("ALTER TABLE bills ADD COLUMN cash_amount REAL DEFAULT 0;"); } catch {}
+try { db.exec("ALTER TABLE bills ADD COLUMN upi_amount REAL DEFAULT 0;"); } catch {}
+try { db.exec("ALTER TABLE bills ADD COLUMN card_amount REAL DEFAULT 0;"); } catch {}
 
 const money = value => Number(Number(value).toFixed(2));
 const positiveInt = value => {
@@ -330,10 +337,9 @@ apiRouter.post("/bills", (req, res) => {
   const rawItems = Array.isArray(req.body.items) ? req.body.items : [];
   if (!rawItems.length) return res.status(400).json({ error: "Bill has no items" });
 
-  const paymentMethod = clean(req.body.payment_method || "Cash", 30);
-  const allowedPayments = new Set(["Cash", "UPI", "Card"]);
-  if (!allowedPayments.has(paymentMethod)) {
-    return res.status(400).json({ error: "Payment method must be Cash, UPI, or Card" });
+  const paymentMethod = clean(req.body.payment_method || "Cash", 100);
+  if (!paymentMethod) {
+    return res.status(400).json({ error: "Payment method is required" });
   }
 
   const items = rawItems.map(item => ({
@@ -351,10 +357,26 @@ apiRouter.post("/bills", (req, res) => {
   const createdAt = new Date().toISOString();
   const billNo = makeBillNumber();
 
+  let cashAmount = money(req.body.cash_amount || 0);
+  let upiAmount = money(req.body.upi_amount || 0);
+  let cardAmount = money(req.body.card_amount || 0);
+
+  if (paymentMethod === "Cash" && cashAmount === 0) cashAmount = total;
+  else if (paymentMethod === "UPI" && upiAmount === 0) upiAmount = total;
+  else if (paymentMethod === "Card" && cardAmount === 0) cardAmount = total;
+  else if (paymentMethod.startsWith("Split") || paymentMethod.includes("Split")) {
+    if (cashAmount === 0 && upiAmount === 0 && cardAmount === 0) {
+      const upiMatch = paymentMethod.match(/₹([\d.]+)\s*UPI/i);
+      const cashMatch = paymentMethod.match(/₹([\d.]+)\s*Cash/i);
+      if (upiMatch) upiAmount = money(upiMatch[1]);
+      if (cashMatch) cashAmount = money(cashMatch[1]);
+    }
+  }
+
   const createBill = db.transaction(() => {
     const bill = db.prepare(
-      "INSERT INTO bills(bill_no, total, payment_method, created_at) VALUES (?, ?, ?, ?)"
-    ).run(billNo, total, paymentMethod, createdAt);
+      "INSERT INTO bills(bill_no, total, payment_method, cash_amount, upi_amount, card_amount, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run(billNo, total, paymentMethod, cashAmount, upiAmount, cardAmount, createdAt);
 
     const addItem = db.prepare(`
       INSERT INTO bill_items(bill_id, item_id, item_name, quantity, price, amount)
@@ -376,7 +398,7 @@ apiRouter.post("/bills", (req, res) => {
   });
 
   const id = createBill();
-  res.status(201).json({ id, bill_no: billNo, total, payment_method: paymentMethod, created_at: createdAt });
+  res.status(201).json({ id, bill_no: billNo, total, payment_method: paymentMethod, cash_amount: cashAmount, upi_amount: upiAmount, card_amount: cardAmount, created_at: createdAt });
 });
 
 apiRouter.get("/bills", (req, res) => {
@@ -405,9 +427,27 @@ apiRouter.get("/reports/daily", (req, res) => {
     SELECT
       COUNT(*) AS bills,
       COALESCE(SUM(total), 0) AS total,
-      COALESCE(SUM(CASE WHEN payment_method = 'Cash' THEN total ELSE 0 END), 0) AS cash,
-      COALESCE(SUM(CASE WHEN payment_method = 'UPI' THEN total ELSE 0 END), 0) AS upi,
-      COALESCE(SUM(CASE WHEN payment_method = 'Card' THEN total ELSE 0 END), 0) AS card
+      COALESCE(SUM(
+        CASE
+          WHEN cash_amount > 0 OR upi_amount > 0 OR card_amount > 0 THEN cash_amount
+          WHEN payment_method = 'Cash' THEN total
+          ELSE 0
+        END
+      ), 0) AS cash,
+      COALESCE(SUM(
+        CASE
+          WHEN cash_amount > 0 OR upi_amount > 0 OR card_amount > 0 THEN upi_amount
+          WHEN payment_method = 'UPI' THEN total
+          ELSE 0
+        END
+      ), 0) AS upi,
+      COALESCE(SUM(
+        CASE
+          WHEN cash_amount > 0 OR upi_amount > 0 OR card_amount > 0 THEN card_amount
+          WHEN payment_method = 'Card' THEN total
+          ELSE 0
+        END
+      ), 0) AS card
     FROM bills
     WHERE date(datetime(created_at, 'localtime')) = date('now', 'localtime')
   `).get();
