@@ -57,7 +57,7 @@ function Main({ onLogout }) {
       <header className="topbar">
         <button className="icon-btn mobile-menu" onClick={() => setMobile(true)}><Menu /></button>
         <div><h2>{nav.find(x => x[0] === page)?.[1]}</h2><span>{new Date().toLocaleDateString()}</span></div>
-        <button className="avatar">A</button>
+        <button className="avatar">N</button>
       </header>
       <div className="content">
         {page === "dashboard" && <Dashboard go={setPage} />}
