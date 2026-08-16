@@ -9,10 +9,10 @@ import {api} from "./api";
 const money = n => `₹${Number(n||0).toFixed(2)}`;
 
 function Login({onLogin}) {
-  const [u,setU]=useState("nadeem"), [p,setP]=useState("nadeem@6248"), [error,setError]=useState("");
+  const [u,setU]=useState(""), [p,setP]=useState(""), [error,setError]=useState("");
   function submit(e){
     e.preventDefault();
-    if(u==="nadeem" && p==="nadeem@6248") onLogin();
+    if(u.trim()==="nadeem" && p==="nadeem@6248") onLogin();
     else setError("Invalid username or password");
   }
   return <div className="login-page">
@@ -20,8 +20,8 @@ function Login({onLogin}) {
       <div className="logo big">🍽️</div>
       <h1>Restaurant Billing</h1>
       <p>Sign in to continue</p>
-      <label>Username<input value={u} onChange={e=>setU(e.target.value)}/></label>
-      <label>Password<input type="password" value={p} onChange={e=>setP(e.target.value)}/></label>
+      <label>Username<input value={u} onChange={e=>setU(e.target.value)} placeholder="Enter username" required/></label>
+      <label>Password<input type="password" value={p} onChange={e=>setP(e.target.value)} placeholder="Enter password" required/></label>
       {error && <div className="error">{error}</div>}
       <button className="primary full">LOGIN</button>
     </form>
