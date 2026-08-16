@@ -13,22 +13,30 @@ A simple offline-first restaurant billing application for a small restaurant wit
 
 ## Run
 
-### Backend
+### Both Backend & Frontend (Recommended)
+From the root directory:
 ```bash
-cd backend
-npm install
-npm start
-```
-
-### Frontend
-Open another terminal:
-```bash
-cd frontend
 npm install
 npm run dev
 ```
+This launches both the Express API server (port 5000) and the Vite React frontend (http://localhost:5173) simultaneously.
 
-Then open the URL shown by Vite, normally http://localhost:5173.
+### Individual Services
+
+#### Backend Only
+```bash
+npm run dev:backend
+```
+
+#### Frontend Only
+```bash
+npm run dev:frontend
+```
+
+#### Production Build
+```bash
+npm run build
+```
 
 ## Default login
 Username: `admin`

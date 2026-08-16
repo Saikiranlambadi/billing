@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: billing-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: DB_PATH
+        value: /var/data/restaurant.db
+      - key: FRONTEND_ORIGIN
+        sync: false
